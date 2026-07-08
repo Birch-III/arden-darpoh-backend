@@ -1,0 +1,26 @@
+{
+  "name": "arden-darpoh-land-records-api",
+  "version": "1.0.0",
+  "description": "Backend API for the Arden Darpoh Family Land management & records system",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:init": "node src/db/init.js",
+    "db:seed": "node src/db/seed.js",
+    "test": "node tests/smoke.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.0",
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "pg-mem": "^3.0.4"
+  }
+}
