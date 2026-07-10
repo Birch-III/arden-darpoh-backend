@@ -56,4 +56,35 @@ router.get(
   })
 );
 
+// PATCH /api/auth/me/password — change your own password
+router.patch(
+  '/me/password',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { current_password, new_password } = req.body;
+    if (!current_password || !new_password) {
+      return res.status(400).json({ error: 'Current password and new password are required.' });
+    }
+    if (new_password.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters.' });
+    }
+
+    const { rows } = await query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    const user = rows[0];
+    if (!user) return res.status(404).json({ error: 'Account not found.' });
+
+    const valid = await bcrypt.compare(current_password, user.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Current password is incorrect.' });
+    }
+
+    const newHash = await bcrypt.hash(new_password, 10);
+    await query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);
+
+    await logAction(user.id, 'auth.change_password', 'users', user.id, {});
+
+    res.json({ success: true });
+  })
+);
+
 module.exports = router;

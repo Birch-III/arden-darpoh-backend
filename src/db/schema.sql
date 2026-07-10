@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 
 -- ---------- DOCUMENTS (uploaded land documents per buyer/plot) ----------
+-- file_path stores the cloud storage key (Cloudinary public_id), not a local disk path.
 CREATE TABLE IF NOT EXISTS documents (
   id                   SERIAL PRIMARY KEY,
   buyer_id             INTEGER NOT NULL REFERENCES buyers(id) ON DELETE CASCADE,
@@ -99,10 +100,15 @@ CREATE TABLE IF NOT EXISTS documents (
   document_type        TEXT DEFAULT 'other',   -- indenture, site_plan, receipt, id, other
   file_name            TEXT NOT NULL,
   file_path            TEXT NOT NULL,
+  resource_type        TEXT DEFAULT 'auto',    -- Cloudinary resource type (image/raw/video)
   file_size_bytes      INTEGER,
   uploaded_by          INTEGER REFERENCES users(id),
   uploaded_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Adds the column for databases created before cloud storage was introduced.
+-- Safe to run repeatedly (npm run db:init) — does nothing if the column already exists.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS resource_type TEXT DEFAULT 'auto';
 
 -- ---------- AUDIT LOG (every create/edit/delete/upload/payment/login) ----------
 CREATE TABLE IF NOT EXISTS audit_log (

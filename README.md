@@ -108,6 +108,34 @@ calculation, acknowledgement, dashboard totals, and report access control.
 
 ---
 
+## 3.5 Document storage (Cloudinary)
+
+Uploaded land documents (indentures, site plans, receipts, IDs) are stored
+in **Cloudinary**, not on local disk. This matters because most hosting
+platforms (including Render's free tier) wipe local files on every restart
+or redeploy — Cloudinary keeps them permanently, independent of your server.
+
+**Setup (free, ~2 minutes):**
+1. Sign up at [cloudinary.com](https://cloudinary.com) (free tier: 25GB storage).
+2. On your Dashboard, find **"Product Environment Credentials"** and copy
+   the Cloud name, API Key, and API Secret.
+3. Add them to your `.env`:
+   ```
+   CLOUDINARY_CLOUD_NAME=your-cloud-name
+   CLOUDINARY_API_KEY=your-api-key
+   CLOUDINARY_API_SECRET=your-api-secret
+   ```
+4. Add the same three variables to your Render service's **Environment** tab.
+5. If you already have a live database from before this change, run
+   `npm run db:init` again — it safely adds the new `resource_type` column
+   to your existing `documents` table without touching any existing data.
+
+The storage backend is swappable — see `src/services/documentStorage.js`.
+The test suite injects a fake in-memory backend instead of calling out to
+Cloudinary, so `npm test` doesn't need real credentials to pass.
+
+---
+
 ## 4. Deploying it "online"
 
 Any Node host works. A simple, cheap path:
