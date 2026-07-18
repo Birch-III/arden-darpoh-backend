@@ -19,16 +19,25 @@ CREATE TABLE IF NOT EXISTS users (
   -- Which groups this user may act on. ["all"] or e.g. ["Group A","Group B"]
   group_scope      JSONB NOT NULL DEFAULT '["all"]',
   status           TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
+  -- Two-factor authentication (TOTP). totp_secret stays NULL until setup is
+  -- completed and confirmed with a valid code — see auth.routes.js.
+  totp_secret      TEXT,
+  totp_enabled     BOOLEAN NOT NULL DEFAULT false,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by       INTEGER REFERENCES users(id)
 );
+
+-- Adds 2FA columns for databases created before this feature existed.
+-- Safe to run repeatedly (npm run db:init) — does nothing if already present.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT false;
 
 -- ---------- LAND GROUPS (ZONES: Group A, B, C ...) ----------
 CREATE TABLE IF NOT EXISTS groups (
   id               SERIAL PRIMARY KEY,
   name             TEXT NOT NULL UNIQUE,          -- "Group A"
   location         TEXT,                          -- "North Ridge"
-  total_land_size  NUMERIC NOT NULL DEFAULT 0,     -- total plots allocated to this group
+  total_land_size  NUMERIC NOT NULL DEFAULT 0,     -- total plot CAPACITY for this group (not a count of plot rows created so far — see groups.routes.js for how available_plots is computed from this)
   description      TEXT,
   archived         BOOLEAN NOT NULL DEFAULT false,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -61,23 +70,42 @@ CREATE TABLE IF NOT EXISTS buyers (
   -- existing = already purchased & registered; prospective = reservation/pipeline; disputed = flagged
   status           TEXT NOT NULL DEFAULT 'prospective'
                      CHECK (status IN ('existing', 'prospective', 'disputed')),
+  -- Soft delete: NULL = active. Deleting is Main-Admin-only and restorable —
+  -- see buyers.routes.js. Never hard-deleted, so payment/audit history survives.
+  deleted_at       TIMESTAMPTZ,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by       INTEGER REFERENCES users(id)
 );
+ALTER TABLE buyers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
 -- ---------- PURCHASE RECORDS (links a buyer to a plot + grant tracking) ----------
 CREATE TABLE IF NOT EXISTS purchase_records (
   id                     SERIAL PRIMARY KEY,
   buyer_id               INTEGER NOT NULL REFERENCES buyers(id) ON DELETE CASCADE,
-  plot_id                INTEGER NOT NULL UNIQUE REFERENCES plots(id) ON DELETE RESTRICT,
+  plot_id                INTEGER NOT NULL REFERENCES plots(id) ON DELETE RESTRICT,
   purchase_date          DATE NOT NULL DEFAULT CURRENT_DATE,
   total_grant_due        NUMERIC NOT NULL DEFAULT 0,
   fully_paid_flag        BOOLEAN NOT NULL DEFAULT false,   -- auto-set once balance reaches 0
   acknowledged_by        INTEGER REFERENCES users(id),     -- manual admin certification
   acknowledgement_date   TIMESTAMPTZ,
+  -- Mirrors buyers.deleted_at — set together when the buyer is soft-deleted,
+  -- cleared together on restore. See note below on why plot_id is no longer
+  -- a plain UNIQUE column constraint.
+  deleted_at             TIMESTAMPTZ,
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by             INTEGER REFERENCES users(id)
 );
+ALTER TABLE purchase_records ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- A plot should only be tied to one ACTIVE purchase record at a time, but a
+-- deleted buyer's old (deleted) purchase record must not block the plot from
+-- being sold to someone new. A plain UNIQUE column constraint can't express
+-- "unique among active rows only", so: drop the old blanket constraint
+-- (Postgres's standard auto-generated name for a single-column UNIQUE
+-- constraint) and replace it with a partial unique index instead.
+ALTER TABLE purchase_records DROP CONSTRAINT IF EXISTS purchase_records_plot_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS purchase_records_plot_id_active_key
+  ON purchase_records(plot_id) WHERE deleted_at IS NULL;
 
 -- ---------- PAYMENTS (grant payment history, many per purchase record) ----------
 CREATE TABLE IF NOT EXISTS payments (
@@ -109,6 +137,13 @@ CREATE TABLE IF NOT EXISTS documents (
 -- Adds the column for databases created before cloud storage was introduced.
 -- Safe to run repeatedly (npm run db:init) — does nothing if the column already exists.
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS resource_type TEXT DEFAULT 'auto';
+
+-- Two-factor authentication (TOTP, e.g. Google Authenticator / Authy).
+-- totp_secret is only meaningful once totp_enabled is true — a non-null
+-- secret with totp_enabled=false just means setup was started but never
+-- confirmed with a valid code.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT false;
 
 -- ---------- AUDIT LOG (every create/edit/delete/upload/payment/login) ----------
 CREATE TABLE IF NOT EXISTS audit_log (

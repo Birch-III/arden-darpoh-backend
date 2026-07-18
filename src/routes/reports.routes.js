@@ -15,14 +15,17 @@ router.get(
     const { rows } = await query(`
       SELECT
         g.name AS group_name, g.location,
-        COUNT(p.id) AS total_plots,
+        g.total_land_size AS total_plots,
         COUNT(p.id) FILTER (WHERE p.status = 'sold') AS sold_plots,
         COUNT(p.id) FILTER (WHERE p.status = 'reserved') AS reserved_plots,
-        COUNT(p.id) FILTER (WHERE p.status = 'available') AS available_plots
+        GREATEST(
+          g.total_land_size - COUNT(p.id) FILTER (WHERE p.status IN ('sold', 'reserved')),
+          0
+        ) AS available_plots
       FROM groups g
       LEFT JOIN plots p ON p.group_id = g.id
       WHERE g.archived = false
-      GROUP BY g.name, g.location
+      GROUP BY g.id, g.name, g.location, g.total_land_size
       ORDER BY g.name
     `);
     res.json(rows);
@@ -54,6 +57,7 @@ router.get(
       JOIN plots p ON p.id = pr.plot_id
       JOIN groups g ON g.id = p.group_id
       LEFT JOIN payments pay ON pay.purchase_record_id = pr.id
+      WHERE pr.deleted_at IS NULL AND b.deleted_at IS NULL
       GROUP BY b.name, g.name, p.plot_number, pr.id, pr.total_grant_due, pr.purchase_date
       ORDER BY balance DESC
     `);
@@ -71,9 +75,10 @@ router.get(
         g.name AS group_name, p.plot_number, p.plot_size, p.plot_size_unit,
         pr.purchase_date
       FROM buyers b
-      LEFT JOIN purchase_records pr ON pr.buyer_id = b.id
+      LEFT JOIN purchase_records pr ON pr.buyer_id = b.id AND pr.deleted_at IS NULL
       LEFT JOIN plots p ON p.id = pr.plot_id
       LEFT JOIN groups g ON g.id = p.group_id
+      WHERE b.deleted_at IS NULL
       ORDER BY b.name
     `);
     res.json(rows);

@@ -17,7 +17,7 @@ async function groupOfBuyerParam(req) {
     `SELECT g.name FROM purchase_records pr
      JOIN plots p ON p.id = pr.plot_id
      JOIN groups g ON g.id = p.group_id
-     WHERE pr.buyer_id = $1 LIMIT 1`,
+     WHERE pr.buyer_id = $1 AND pr.deleted_at IS NULL LIMIT 1`,
     [req.params.buyerId]
   );
   return rows[0]?.name || null;
@@ -54,6 +54,9 @@ router.post(
   upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded, or file type not allowed.' });
+
+    const { rows: buyerCheck } = await query('SELECT id FROM buyers WHERE id = $1 AND deleted_at IS NULL', [req.params.buyerId]);
+    if (!buyerCheck[0]) return res.status(404).json({ error: 'Buyer not found (it may have been deleted).' });
 
     const { document_type, purchase_record_id } = req.body;
     const uploaded = await storage.upload(req.file.buffer, { filename: req.file.originalname });

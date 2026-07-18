@@ -11,36 +11,46 @@ router.get(
   '/',
   asyncHandler(async (req, res) => {
     const [buyers, plots, grant, byGroup, overdue] = await Promise.all([
-      query(`SELECT COUNT(*) AS total_buyers FROM buyers`),
+      query(`SELECT COUNT(*) AS total_buyers FROM buyers WHERE deleted_at IS NULL`),
       query(`
         SELECT
-          COUNT(*) AS total_plots,
-          COUNT(*) FILTER (WHERE status = 'sold') AS sold_plots,
-          COUNT(*) FILTER (WHERE status = 'available') AS available_plots,
-          COUNT(*) FILTER (WHERE status = 'reserved') AS reserved_plots
-        FROM plots
+          COALESCE(SUM(g.total_land_size), 0) AS total_plots,
+          COUNT(p.id) FILTER (WHERE p.status = 'sold') AS sold_plots,
+          COUNT(p.id) FILTER (WHERE p.status = 'reserved') AS reserved_plots,
+          GREATEST(
+            COALESCE(SUM(g.total_land_size), 0) - COUNT(p.id) FILTER (WHERE p.status IN ('sold', 'reserved')),
+            0
+          ) AS available_plots
+        FROM groups g
+        LEFT JOIN plots p ON p.group_id = g.id
+        WHERE g.archived = false
       `),
       query(`
         SELECT
           COALESCE(SUM(pr.total_grant_due), 0) AS total_due,
           COALESCE(SUM(paid.amount_paid), 0) AS total_collected
         FROM purchase_records pr
+        JOIN buyers b ON b.id = pr.buyer_id
         LEFT JOIN (
           SELECT purchase_record_id, SUM(amount) AS amount_paid
           FROM payments GROUP BY purchase_record_id
         ) paid ON paid.purchase_record_id = pr.id
+        WHERE pr.deleted_at IS NULL AND b.deleted_at IS NULL
       `),
       query(`
         SELECT
           g.name,
-          COUNT(p.id) AS total_plots,
+          g.total_land_size AS total_plots,
           COUNT(p.id) FILTER (WHERE p.status = 'sold') AS sold_plots,
           COUNT(p.id) FILTER (WHERE p.status = 'reserved') AS reserved_plots,
-          COUNT(p.id) FILTER (WHERE p.status = 'available') AS available_plots
+          GREATEST(
+            g.total_land_size - COUNT(p.id) FILTER (WHERE p.status IN ('sold', 'reserved')),
+            0
+          ) AS available_plots
         FROM groups g
         LEFT JOIN plots p ON p.group_id = g.id
         WHERE g.archived = false
-        GROUP BY g.name ORDER BY g.name
+        GROUP BY g.id, g.name, g.total_land_size ORDER BY g.name
       `),
       query(`
         SELECT * FROM (
@@ -51,6 +61,7 @@ router.get(
           JOIN buyers b ON b.id = pr.buyer_id
           JOIN plots p ON p.id = pr.plot_id
           LEFT JOIN payments pay ON pay.purchase_record_id = pr.id
+          WHERE pr.deleted_at IS NULL AND b.deleted_at IS NULL
           GROUP BY b.id, b.name, p.plot_number, pr.id, pr.total_grant_due
         ) sub
         WHERE balance > 0

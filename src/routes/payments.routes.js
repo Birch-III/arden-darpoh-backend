@@ -57,6 +57,7 @@ router.get(
       JOIN plots p ON p.id = pr.plot_id
       JOIN groups g ON g.id = p.group_id
       LEFT JOIN payments pay ON pay.purchase_record_id = pr.id
+      WHERE pr.deleted_at IS NULL AND b.deleted_at IS NULL
       GROUP BY b.id, b.name, p.plot_number, g.name, pr.id, pr.total_grant_due, pr.acknowledgement_date
       ORDER BY balance DESC
     `);
@@ -78,7 +79,7 @@ router.post(
       return res.status(400).json({ error: 'Amount must be greater than zero.' });
     }
 
-    const { rows: prRows } = await query('SELECT * FROM purchase_records WHERE id = $1', [purchase_record_id]);
+    const { rows: prRows } = await query('SELECT * FROM purchase_records WHERE id = $1 AND deleted_at IS NULL', [purchase_record_id]);
     if (!prRows[0]) return res.status(404).json({ error: 'Purchase record not found.' });
 
     const { rows } = await query(
@@ -109,7 +110,7 @@ router.post(
   requirePermission('payments:record'),
   requireGroupAccess(groupOfPurchaseRecord),
   asyncHandler(async (req, res) => {
-    const { rows: prRows } = await query('SELECT * FROM purchase_records WHERE id = $1', [req.params.id]);
+    const { rows: prRows } = await query('SELECT * FROM purchase_records WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
     if (!prRows[0]) return res.status(404).json({ error: 'Purchase record not found.' });
     if (!prRows[0].fully_paid_flag) {
       return res.status(400).json({ error: 'This plot is not yet fully paid — cannot acknowledge.' });

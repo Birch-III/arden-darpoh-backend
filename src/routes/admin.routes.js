@@ -5,6 +5,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { requireAuth } = require('../middleware/auth');
 const { requireMainAdmin } = require('../middleware/permissions');
 const { logAction } = require('../middleware/auditLog');
+const { validatePassword } = require('../utils/passwordPolicy');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -34,6 +35,8 @@ router.post(
     if (!['sub_admin', 'read_only'].includes(role)) {
       return res.status(400).json({ error: 'role must be sub_admin or read_only (Main Admin is set at setup only).' });
     }
+    const policyError = validatePassword(password);
+    if (policyError) return res.status(400).json({ error: policyError });
 
     const passwordHash = await bcrypt.hash(password, 10);
     const { rows } = await query(
